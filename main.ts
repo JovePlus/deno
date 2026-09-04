@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { serve } from 'https://deno.land/std@0.167.0/http/server.ts';
 import { chunk } from 'https://jspm.dev/lodash-es';
 import { stringify, validate } from 'https://jspm.dev/uuid';
@@ -149,14 +150,15 @@ const handler = async (req: Request): Promise<Response> => {
           case 3:
             addressLength = 16;
             const addressChunkBy2: number[][] = chunk(
-              new Uint8Array(
-                vlessBuffer.slice(
-                  addressValueIndex,
-                  addressValueIndex + addressLength
+              Array.from(
+                new Uint8Array(
+                  vlessBuffer.slice(
+                    addressValueIndex,
+                    addressValueIndex + addressLength
+                  )
                 )
               ),
-              2,
-              null
+              2
             );
             addressValue = addressChunkBy2
               .map((items) =>

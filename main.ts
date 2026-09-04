@@ -1,13 +1,12 @@
 // @ts-nocheck
-import { serve } from 'https://deno.land/std@0.167.0/http/server.ts';
-import { chunk } from 'https://jspm.dev/lodash-es';
-import { stringify, validate } from 'https://jspm.dev/uuid';
-
-// VLESS over WebSocket proxy for Deno Deploy (cleaned single-file version)
+// VLESS over WebSocket proxy for Deno Deploy (single-file, zero-dependency)
 // Set env UUID, otherwise default is used.
+// Entrypoint must use Deno.serve(handler) with NO explicit port on Deno Deploy.
 
 const userID = Deno.env.get('UUID') || '7f3a9c2e-4d6b-4a8f-9c1e-2b5d8f0a3c67';
-let isValidUser = validate(userID);
+const isValidUser = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+  userID
+);
 if (!isValidUser) {
   console.log('not set valid UUID');
 }
@@ -35,6 +34,30 @@ const HTML_401 = `<!DOCTYPE html>
     </script>
 </body>
 </html>`;
+
+// 16 raw bytes -> RFC4122 uuid string (same as uuid.stringify)
+function uuidFromBytes(bytes: Uint8Array): string {
+  const hex: string[] = [];
+  bytes.forEach((b) => hex.push(b.toString(16).padStart(2, '0')));
+  return [
+    hex.slice(0, 4).join(''),
+    hex.slice(4, 6).join(''),
+    hex.slice(6, 8).join(''),
+    hex.slice(8, 10).join(''),
+    hex.slice(10, 16).join(''),
+  ].join('-');
+}
+
+// 16 bytes ipv6 -> "xxxx.xxxx.xxxx.xxxx.xxxx.xxxx.xxxx.xxxx" (same as lodash chunk map)
+function ipv6FromBytes(bytes: Uint8Array): string {
+  const parts: string[] = [];
+  for (let i = 0; i < bytes.length; i += 2) {
+    const hi = bytes[i].toString(16).padStart(2, '0');
+    const lo = bytes[i + 1].toString(16).padStart(2, '0');
+    parts.push(hi + lo);
+  }
+  return parts.join('.');
+}
 
 const handler = async (req: Request): Promise<Response> => {
   if (!isValidUser) {
@@ -82,10 +105,8 @@ const handler = async (req: Request): Promise<Response> => {
           return;
         }
         const version = new Uint8Array(vlessBuffer.slice(0, 1));
-        let isVaildUser = false;
-        if (stringify(new Uint8Array(vlessBuffer.slice(1, 17))) === userID) {
-          isVaildUser = true;
-        }
+        const isVaildUser =
+          uuidFromBytes(new Uint8Array(vlessBuffer.slice(1, 17))) === userID;
         if (!isVaildUser) {
           console.log('in valid user');
           return;
@@ -149,22 +170,14 @@ const handler = async (req: Request): Promise<Response> => {
             break;
           case 3:
             addressLength = 16;
-            const addressChunkBy2: number[][] = chunk(
-              Array.from(
-                new Uint8Array(
-                  vlessBuffer.slice(
-                    addressValueIndex,
-                    addressValueIndex + addressLength
-                  )
+            addressValue = ipv6FromBytes(
+              new Uint8Array(
+                vlessBuffer.slice(
+                  addressValueIndex,
+                  addressValueIndex + addressLength
                 )
-              ),
-              2
-            );
-            addressValue = addressChunkBy2
-              .map((items) =>
-                items.map((item) => item.toString(16).padStart(2, '0')).join('')
               )
-              .join('.');
+            );
             break;
           default:
             console.log(`[${address}:${port}] invild address`);
@@ -214,4 +227,5 @@ const handler = async (req: Request): Promise<Response> => {
   return response;
 };
 
-serve(handler, { port: 8080, hostname: '0.0.0.0' });
+// Deno Deploy: serve without explicit port/hostname so the platform can bind it.
+Deno.serve(handler);
